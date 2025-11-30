@@ -11,3 +11,4 @@ Protects remarks from deletion, reorder, or overwrite
 Creates hidden RemarksDB automatically
 Easy one-click syncing via custom menu
 Ideal for CRM & lead tracking systems
+<img width="1900" height="5670" alt="Google-Apps-Script-Smart-CRM-Sync-with-Static-Remark" src="https://github.com/user-attachments/assets/173d1990-1e0e-4475-90eb-d6d2dd5d8344" />
