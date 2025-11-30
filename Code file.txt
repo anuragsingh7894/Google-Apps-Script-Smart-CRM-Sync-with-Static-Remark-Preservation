@@ -1,0 +1,109 @@
+/********** CONFIG — UPDATE ONLY THESE **********/
+const SOURCE_SPREADSHEET_ID = "1tGVEsIpThxSrhjquFPktI5SPUSu1RVtypm8a2I284-I";
+const SOURCE_SHEET_NAME = "SourceSheetName";
+const MAIN_SHEET_NAME = "MainData"; 
+const STORE_SHEET_NAME = "RemarksDB";
+
+const leadIdColumn = 1;  // Column A = 1 (unique identifier)
+const remarksColumns = 10; // number of remark columns
+/************************************************/
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("ImportSync")
+    .addItem("Sync Now", "syncDataWithRemarks")
+    .addToUi();
+}
+
+function safe(v) {
+  if (!v || v === "" || v === null) return "";
+  if (v instanceof Error) return "";
+  if (typeof v === "string" && v.startsWith("#")) return "";
+  return v;
+}
+
+function syncDataWithRemarks() {
+  const ss = SpreadsheetApp.getActive();
+  const main = ss.getSheetByName(MAIN_SHEET_NAME);
+  if (!main) {
+    SpreadsheetApp.getUi().alert("❌ Main sheet not found: " + MAIN_SHEET_NAME);
+    return;
+  }
+
+  // Ensure DB sheet exists
+  let store = ss.getSheetByName(STORE_SHEET_NAME);
+  if (!store) store = ss.insertSheet(STORE_SHEET_NAME);
+  store.hideSheet();
+
+  /******** STEP-1: LOAD SOURCE DATA ********/
+  const srcSS = (SOURCE_SPREADSHEET_ID === ss.getId())
+    ? ss
+    : SpreadsheetApp.openById(SOURCE_SPREADSHEET_ID);
+
+  const srcSheet = srcSS.getSheetByName(SOURCE_SHEET_NAME);
+  const srcData = srcSheet.getDataRange().getValues();
+
+  if (!srcData || srcData.length < 2) {
+    SpreadsheetApp.getUi().alert("⚠ Source sheet empty.");
+    return;
+  }
+
+  const headers = srcData[0].map(safe);
+  const importedRows = srcData.slice(1).map(r => r.map(safe));
+  const importedCols = headers.length;
+
+  /******** STEP-2: LOAD ALL STORED REMARKS ********/
+  const remarkStore = {};
+  const db = store.getDataRange().getValues();
+  db.forEach(row => {
+    if (row[0]) remarkStore[row[0]] = row.slice(1);
+  });
+
+  /******** STEP-3: ALSO TAKE CURRENT MAIN REMARKS (latest edits) ********/
+  const lastRow = main.getLastRow();
+  if (lastRow > 1) {
+    const mainData = main
+      .getRange(2, 1, lastRow - 1, importedCols + remarksColumns)
+      .getValues();
+    mainData.forEach(row => {
+      const id = safe(row[leadIdColumn - 1]);
+      if (id) remarkStore[id] = row.slice(importedCols);
+    });
+  }
+
+  /******** STEP-4: MERGE IMPORTED DATA WITH STORED REMARKS ********/
+  const remarkHeaders = [...Array(remarksColumns)].map((_, i) => `Remark ${i + 1}`);
+  const finalHeaders = headers.concat(remarkHeaders);
+
+  const finalRows = importedRows.map(row => {
+    const id = safe(row[leadIdColumn - 1]);
+    const rem = remarkStore[id] || Array(remarksColumns).fill("");
+    return row.concat(rem);
+  });
+
+  /******** STEP-5: WRITE TO MAIN SHEET SAFELY ********/
+  const totalRows = finalRows.length + 1;
+  const totalCols = finalHeaders.length;
+
+  const writeRange = main.getRange(1, 1, totalRows, totalCols);
+
+  try { writeRange.clearDataValidations(); } catch (e) {}
+
+  main.clearContents();
+
+  main.getRange(1, 1, 1, totalCols).setValues([finalHeaders]);
+  if (finalRows.length > 0) {
+    main.getRange(2, 1, finalRows.length, totalCols).setValues(finalRows);
+  }
+
+  /******** STEP-6: SAVE UPDATED REMARKS BACK TO RemarksDB ********/
+  const newDB = Object.entries(remarkStore).map(([id, rem]) => [id, ...rem]);
+
+  store.clearContents();
+  if (newDB.length > 0) {
+    store.getRange(1, 1, newDB.length, remarksColumns + 1)
+      .setValues(newDB);
+  }
+
+  SpreadsheetApp.getUi().alert("✨ Sync Completed — Remarks Always Kept & Restored!");
+}
